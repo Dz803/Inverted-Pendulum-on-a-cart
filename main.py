@@ -1,4 +1,3 @@
-# main.py
 import time
 import pybullet as p
 import pybullet_data
@@ -12,8 +11,9 @@ def main():
     p.connect(p.GUI)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setGravity(0, 0, -9.81)
-
     planeId = p.loadURDF("plane.urdf")
+
+    # 2) Load 4-wheel cart-pole URDF
     startPos = [0, 0, 0.08]
     startOrientation = p.getQuaternionFromEuler([0, 0, 0])
     cartpoleId = p.loadURDF(
@@ -23,108 +23,53 @@ def main():
         useFixedBase=False
     )
 
-    # -------------------------------------------------------------------------
-    # (A) Read link masses from URDF 
-    # -------------------------------------------------------------------------
-    # In your URDF:
-    #   cart_base mass=0.1
-    #   left_front_link, right_front_link, left_rare_link, right_rare_link => each 0.02
-    #   pole_link=0.02, mass_link=0.05
-    # We can sum them manually or confirm with getDynamicsInfo:
+    # (A) Example friction settings
+    #  Increase friction so the wheels actually get traction
+    p.changeDynamics(planeId, -1, lateralFriction=1.0)
+    for link_idx in range(p.getNumJoints(cartpoleId)):
+        p.changeDynamics(cartpoleId, link_idx, lateralFriction=1.0)
 
-    total_cart_mass = 0.0
-    total_pole_mass = 0.0
+    # (B) Identify "drive wheels"
+    #  According to URDF:
+    #   joint0 => left_front_joint
+    #   joint1 => right_front_joint
+    #   joint2 => left_rare_joint (typo "rare"? = "rear"?)
+    #   joint3 => right_rare_joint
+    #   joint4 => pole_joint
+    # We'll pick the FRONT wheels: joint0, joint1 as the drive wheels
+    left_front_joint_index = 0
+    right_front_joint_index = 1
+    pole_joint_index = 4  # if we read angle from there
 
-    # We'll store [linkName -> linkIndex].
-    # Based on your URDF, the order of links is typically:
-    #   linkIndex=-1 => base link (if any)
-    #   linkIndex=0  => left_front_link
-    #   linkIndex=1  => right_front_link
-    #   linkIndex=2  => left_rare_link
-    #   linkIndex=3  => right_rare_link
-    #   linkIndex=4  => pole_link
-    #   linkIndex=5  => mass_link
-    # But let's confirm with p.getNumJoints() and so on.
-
-    num_links = p.getNumJoints(cartpoleId)
-    # We'll check each link's mass 
-    for link_idx in range(-1, num_links):
-        dyn = p.getDynamicsInfo(cartpoleId, link_idx)  # linkIndex=-1 => base
-        mass = dyn[0]
-        # The link name can be retrieved with p.getBodyInfo / p.getJointInfo / p.getLinkState if needed
-        # But we can guess from your URDF structure:
-        if link_idx == -1:
-            # Usually the base link (cart_base?), but your URDF uses "cart_base" as link 0 in the file
-            # Actually your URDF sets cart_base with <link name="cart_base"> 
-            # Typically PyBullet calls that linkIndex=-1 => the "base" of the entire URDF
-            # mass might be 0 or 0.1 
-            pass
-        else:
-            # let's see if it's the 4 wheels or the pole or mass
-            joint_info = p.getJointInfo(cartpoleId, link_idx)
-            child_link_name = joint_info[12].decode("utf-8")
-            if child_link_name in ["left_front_link", "right_front_link", "left_rare_link", "right_rare_link", "cart_base"]:
-                total_cart_mass += mass
-            elif child_link_name in ["pole_link", "mass_link"]:
-                total_pole_mass += mass
-            else:
-                # default: assume cart
-                total_cart_mass += mass
-
-    # But from your URDF, cart_base is actually a link with mass=0.1
-    # The 4 wheels each 0.02 => total 0.08 => cart=0.18
-    # The pole link=0.02 and mass_link=0.05 => total=0.05 since pole is negligible
-    # Let's do a fallback if the above doesn't match:
-    if abs(total_cart_mass) < 1e-9:
-        # fallback: maybe 0.18
-        total_cart_mass = 0.18
-    if abs(total_pole_mass) < 1e-9:
-        # fallback: maybe 0.07
-        total_pole_mass = 0.05
-
-    print(f"Detected cart_mass={total_cart_mass:.3f}, pole_mass={total_pole_mass:.3f}")
-
-    # -------------------------------------------------------------------------
-    # (B) Approximate the pole length from URDF geometry or known offset
-    #     In your URDF, the mass_link is ~0.29m from the pivot. Let's pick ~0.30
-    # -------------------------------------------------------------------------
-    estimated_pole_length = 0.30  # or measure from your CAD / URDF
-
-    # -------------------------------------------------------------------------
-    # 2) Create the cart-pole system with friction parameters
-    # -------------------------------------------------------------------------
+    # 3) Build the CartpoleSystem
+    #   It's still going to guess a "linearized" A,B for your balancing
+    #   We'll read total cart mass ~0.18, total pole mass ~0.05, etc.
     cartpole_sys = CartpoleSystem(
         body_id=cartpoleId,
-        cart_joint_index=0,      # The joint index for the cart movement?
-        pole_joint_index=4,      # Actually, from your URDF, "pole_joint" might be 4
-        M=total_cart_mass,
-        m=total_pole_mass,
-        l=estimated_pole_length,
+        cart_joint_index=left_front_joint_index,  # We'll just store one for reference
+        pole_joint_index=pole_joint_index,
+        M=0.18,     # total cart mass ~ 0.1 + 4*0.02
+        m=0.05,     # total pendulum mass 0.05, pole mass neglected
+        l=0.30,     # approx length
         g=9.81,
-        delta=0.04,    # example friction
+        delta=0.04, # friction
         c=0.015,
         zeta=0.0,
         max_force=50.0
     )
-    cartpole_sys.print_info()  # (Optional) see the system + A,B
+    cartpole_sys.print_info()
 
-    # 3) Build an LQR controller using the system's (A, B)
+    # 4) Create LQR from cartpole_sys A,B
     A = cartpole_sys.A
     B = cartpole_sys.B
-    Q = np.diag([1, 1, 10, 1])
-    R = np.array([[0.1]])
+    Q = np.diag([0.5, 0.5, 5, 0.5])  # smaller weighting
+    R = np.array([[0.5]])            # bigger weighting on torque
+
     dt = 1/240.0
 
-    lqr_ctrl = LQRController(
-        A=A,
-        B=B,
-        Q=Q,
-        R=R,
-        dt=dt,
-        max_force=cartpole_sys.max_force
-    )
+    lqr_ctrl = LQRController(A, B, Q, R, dt=dt, max_force=cartpole_sys.max_force)
 
-    # 4) Zero out the default velocity controls
+    # 5) Disable default velocity controls on the 4 wheels
     num_joints = p.getNumJoints(cartpoleId)
     for j in range(num_joints):
         p.setJointMotorControl2(
@@ -134,24 +79,41 @@ def main():
             force=0
         )
 
-    # 5) Main loop: read state, compute LQR torque, apply to cart joint
+    # 6) Main loop: measure "x, x_dot, theta, theta_dot"
+    #   We'll rely on get_cartpole_state, but that might only read the
+    #   "pole_joint" for angle. For "x" we might approximate from the base's x pos.
     try:
         while True:
             p.stepSimulation()
             time.sleep(dt)
 
-            # get the current [x, x_dot, theta, theta_dot]
+            # Read state from cartpole_sys
             state = cartpole_sys.get_cartpole_state()
 
-            # compute LQR control (u = -K x)
-            force = lqr_ctrl.compute_control(state)
+            # We'll interpret "x, x_dot" from the base link, or from the motion in the X direction
+            # If cartpole_sys is reading them from the base link properly, great.
 
-            # apply torque on the cart joint
+            force = lqr_ctrl.compute_control(state)  # a single scalar "F"
+
+            # Now apply that as torque on the FRONT wheels:
+            # e.g. half the torque to left_rear, half to right_rear
+            # Convert from "force" to "wheel torque"
+            # For simplicity,just do torqueLeft=torqueRight=force/2
+            torque_left = force * 0.5
+            torque_right = force * 0.5
+
+            # Apply torque control
             p.setJointMotorControl2(
                 bodyUniqueId=cartpoleId,
-                jointIndex=cartpole_sys.cart_joint_index,
+                jointIndex=left_front_joint_index,
                 controlMode=p.TORQUE_CONTROL,
-                force=force
+                force=torque_left
+            )
+            p.setJointMotorControl2(
+                bodyUniqueId=cartpoleId,
+                jointIndex=right_front_joint_index,
+                controlMode=p.TORQUE_CONTROL,
+                force=torque_right
             )
 
     except KeyboardInterrupt:
