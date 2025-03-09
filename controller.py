@@ -1,5 +1,6 @@
 import numpy as np
-import cvxpy as cp  # for the MPC example
+import cvxpy as cp
+from scipy.linalg import expm
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional
 
@@ -7,9 +8,33 @@ from typing import List, Tuple, Optional
 from scipy.linalg import solve_continuous_are
 from scipy.signal import place_poles
 
+def c2d_zoh(A, B, dt):
+    """
+    Discretize continuous-time LTI system x_dot = A*x + B*u
+    using Zero-Order Hold on the input over [0,dt].
+    Returns (Ad, Bd) for the discrete system:
+        x[k+1] = Ad x[k] + Bd u[k].
+    """
+    n = A.shape[0]
+    m = B.shape[1]
+
+    # Build augmented matrix
+    M = np.block([
+        [A, B],
+        [np.zeros((m, n)), np.zeros((m, m))]
+    ])
+    # Compute matrix exponential
+    Mexp = expm(M * dt)
+
+    # Extract Ad, Bd
+    Ad = Mexp[:n, :n]
+    Bd = Mexp[:n, n:]
+    return Ad, Bd
+
 ###############################################################################
 # Base Abstract Class
 ###############################################################################
+
 class CartpoleController(ABC):
     """
     Abstract base class for cartpole controllers.
@@ -97,7 +122,7 @@ class CartpoleController(ABC):
         # e.g. [x - x*, xdot - xdot*, (theta - theta*), (thetadot - thetadot*)]
         # Then wrap the angle difference
         theta_error = state[2] - self.target_state[2]
-        theta_error = (theta_error + np.pi) % (2 * np.pi) - np.pi
+        theta_error = (theta_error + np.pi) % (2 * np.pi) - np.pi #normalisation
         
         return [
             state[0] - self.target_state[0],
@@ -258,15 +283,13 @@ class PolePlacementController(CartpoleController):
         u = -(self.K @ e)
         return self.bound_control(u.item())
 
-
 ###############################################################################
-# MPC Controller (Minimal Example)
+# MPC Controller (Matrix Exponential Discretization)
 ###############################################################################
 class MPCController(CartpoleController):
     """
     Minimal linear MPC controller using cvxpy for a receding-horizon approach.
-    We do a naive c2d of (A,B), set up a horizon, and solve each step.
-    Now we incorporate a reference x_ref, so we penalize (x - x_ref).
+    Now uses a matrix exponential for the zero-order hold (ZOH) discretization.
     """
     def __init__(self, 
                  A: np.ndarray,
@@ -286,38 +309,34 @@ class MPCController(CartpoleController):
 
     def compute_control(self, state: List[float]) -> float:
         """
-        Recursively solve the finite-horizon MPC problem at each timestep, 
-        penalizing deviation from self.target_state, i.e. (x - x_ref).
+        Solve the finite-horizon MPC problem at each timestep,
+        penalizing deviation from self.target_state, i.e. (x - x_ref),
+        with a more accurate c2d approach (ZOH).
         """
-        # Convert (A,B) to discrete with a small dt
-        Ad = np.eye(4) + self.dt * self.A_c
-        Bd = self.dt * self.B_c
+        # 1) Convert (A_c,B_c) to discrete with matrix exponent
+        Ad, Bd = c2d_zoh(self.A_c, self.B_c, self.dt)
 
-        # We'll define x_ref as self.target_state
+        # 2) We'll define x_ref as self.target_state
         x_ref = np.array(self.target_state, dtype=float).reshape(-1,1)
 
-        # We do an offset approach: define x_tilde = x - x_ref
-        # Then the next step is x_{k+1} = A_d x_k + B_d u_k.
-        # But we want to penalize x_k - x_ref in the cost.
-        # We'll do it directly in the problem by subtracting x_ref from x_var.
-
+        # 3) Build the MPC optimization problem
         x_var = cp.Variable((4, self.horizon+1))
         u_var = cp.Variable((1, self.horizon))
 
         cost = 0
         constraints = []
         # initial condition
-        # we do x_var[:,0] == (state)
         constraints.append(x_var[:,0] == state)
 
         for k in range(self.horizon):
-            # cost function: penalize (x_k - x_ref) plus input
+            # cost: penalize (x_k - x_ref) plus input
             cost += cp.quad_form(x_var[:,k] - x_ref[:,0], self.Q)
             cost += cp.quad_form(u_var[:,k], self.R)
 
-            # system dynamics
+            # discrete dynamics
             constraints.append(x_var[:,k+1] == Ad @ x_var[:,k] + Bd @ u_var[:,k])
-            # force constraint
+
+            # force/torque constraint
             constraints.append(u_var[:,k] <= self.control_max)
             constraints.append(u_var[:,k] >= self.control_min)
 
@@ -333,10 +352,9 @@ class MPCController(CartpoleController):
 
         # first control action
         force = u_var.value[0,0]
-        # Clip in case numerical issues
+        # Clip just in case
         force = np.clip(force, self.control_min, self.control_max)
         return float(force)
-
 
 ###############################################################################
 # Quick Test / Demo
