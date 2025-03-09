@@ -1,0 +1,365 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="cart_pole">
+  <link
+    name="cart_base">
+    <inertial>
+      <origin
+        xyz="0.031587 -0.029208 -0.026207"
+        rpy="0 0 0" />
+      <mass
+        value="0.1" />
+      <inertia
+        ixx="0.017372"
+        ixy="-0.00010516"
+        ixz="-2.9016E-18"
+        iyy="0.027945"
+        iyz="2.5673E-21"
+        izz="0.018149" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/cart_base.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/cart_base.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="left_front_link">
+    <inertial>
+      <origin
+        xyz="6.245E-17 0.015 4.1633E-17"
+        rpy="0 0 0" />
+      <mass
+        value="0.02" />
+      <inertia
+        ixx="7.0686E-05"
+        ixy="-3.1704E-21"
+        ixz="-6.7763E-21"
+        iyy="0.00012017"
+        iyz="6.3162E-21"
+        izz="7.0686E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/left_front_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/left_front_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_front_joint"
+    type="continuous">
+    <origin
+      xyz="0.15124 -0.03312 -0.060033"
+      rpy="0 -0.46823 -1.5708" />
+    <parent
+      link="cart_base" />
+    <child
+      link="left_front_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="right_front_link">
+    <inertial>
+      <origin
+        xyz="1.3878E-17 0.015 -6.9389E-18"
+        rpy="0 0 0" />
+      <mass
+        value="0.02" />
+      <inertia
+        ixx="7.0686E-05"
+        ixy="5.3672E-21"
+        ixz="1.1235E-36"
+        iyy="0.00012017"
+        iyz="6.2384E-21"
+        izz="7.0686E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/right_front_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/right_front_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_front_joint"
+    type="continuous">
+    <origin
+      xyz="-0.088761 -0.03312 -0.060033"
+      rpy="1.5708 -1.5708 0" />
+    <parent
+      link="cart_base" />
+    <child
+      link="right_front_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="left_rare_link">
+    <inertial>
+      <origin
+        xyz="-1.3878E-17 0.015 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.02" />
+      <inertia
+        ixx="7.0686E-05"
+        ixy="-5.3672E-21"
+        ixz="-5.0342E-37"
+        iyy="0.00012017"
+        iyz="-7.8266E-21"
+        izz="7.0686E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/left_rare_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/left_rare_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="left_rare_joint"
+    type="continuous">
+    <origin
+      xyz="0.15124 0.085535 -0.060033"
+      rpy="1.5708 1.5708 0" />
+    <parent
+      link="cart_base" />
+    <child
+      link="left_rare_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="right_rare_link">
+    <inertial>
+      <origin
+        xyz="0 -0.015 6.9389E-17"
+        rpy="0 0 0" />
+      <mass
+        value="0.02" />
+      <inertia
+        ixx="7.0686E-05"
+        ixy="1.0298E-21"
+        ixz="-6.3527E-22"
+        iyy="0.00012017"
+        iyz="-2.7472E-19"
+        izz="7.0686E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/right_rare_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/right_rare_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="right_rare_joint"
+    type="continuous">
+    <origin
+      xyz="-0.088761 0.085535 -0.060033"
+      rpy="-3.1416 0.024466 1.5708" />
+    <parent
+      link="cart_base" />
+    <child
+      link="right_rare_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link
+    name="pole_link">
+    <inertial>
+      <origin
+        xyz="0.0054399 -0.019263 -0.16005"
+        rpy="0 0 0" />
+      <mass
+        value="0.02" />
+      <inertia
+        ixx="0.00065162"
+        ixy="-2.6311E-07"
+        ixz="2.196E-05"
+        iyy="0.00065507"
+        iyz="7.741E-06"
+        izz="6.265E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/pole_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/pole_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="pole_joint"
+    type="continuous">
+    <origin
+      xyz="0.0219625763412828 0.0262072412622274 0.0499669419773955"
+      rpy="3.14159265358979 0 -1.5707963267949" />
+    <parent
+      link="cart_base" />
+    <child
+      link="pole_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link
+    name="mass_link">
+    <inertial>
+      <origin
+        xyz="-5.5511E-17 3.4694E-18 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.05" />
+      <inertia
+        ixx="7.0686E-05"
+        ixy="-1.5364E-23"
+        ixz="-1.0588E-22"
+        iyy="0.00012017"
+        iyz="-1.3763E-21"
+        izz="7.0686E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/mass_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cart_pole/meshes/mass_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="mass_joint"
+    type="fixed">
+    <origin
+      xyz="0.0099066 0 -0.29147"
+      rpy="0 1.1191 0" />
+    <parent
+      link="pole_link" />
+    <child
+      link="mass_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+</robot>
