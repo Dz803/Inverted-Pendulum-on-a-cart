@@ -23,36 +23,32 @@ def main():
         useFixedBase=False
     )
 
-    # (A) Example friction settings
-    #  Increase friction so the wheels actually get traction
+    # Increase friction for wheels/plane
     p.changeDynamics(planeId, -1, lateralFriction=1.0)
     for link_idx in range(p.getNumJoints(cartpoleId)):
-        p.changeDynamics(cartpoleId, link_idx, lateralFriction=1.0)
+        if link_idx != 4:  # Skip the pole joint if you want
+            p.changeDynamics(cartpoleId, link_idx, 
+                             lateralFriction=5.0,
+                             rollingFriction=0.1,
+                             spinningFriction=0.1)
 
     # (B) Identify "drive wheels"
-    #  According to URDF:
     #   joint0 => left_front_joint
     #   joint1 => right_front_joint
-    #   joint2 => left_rare_joint (typo "rare"? = "rear"?)
-    #   joint3 => right_rare_joint
+    #   joint2 => left_rear_joint
+    #   joint3 => right_rear_joint
     #   joint4 => pole_joint
-    # We'll pick the FRONT wheels: joint0, joint1 as the drive wheels
-    left_front_joint_index = 0
-    right_front_joint_index = 1
-    pole_joint_index = 4  # if we read angle from there
+    left_joint_index = 2
+    right_joint_index = 3
+    pole_joint_index = 4  # If reading angle from there
 
-    # 3) Build the CartpoleSystem
-    #   It's still going to guess a "linearized" A,B for your balancing
-    #   We'll read total cart mass ~0.18, total pole mass ~0.05, etc.
-    cartpole_sys = CartpoleSystem(
-        body_id=cartpoleId,
-        cart_joint_index=left_front_joint_index,  # We'll just store one for reference
-        pole_joint_index=pole_joint_index,
-        M=0.18,     # total cart mass ~ 0.1 + 4*0.02
-        m=0.05,     # total pendulum mass 0.05, pole mass neglected
-        l=0.30,     # approx length
+    # 3) Build CartpoleSystem
+    cartpole_sys = CartpoleSystem(body_id=cartpoleId,cart_joint_index=left_joint_index,pole_joint_index=pole_joint_index,
+        M=0.28,  # total cart mass
+        m=0.05,  # total pole mass
+        l=0.30,
         g=9.81,
-        delta=0.04, # friction
+        delta=0.04,
         c=0.015,
         zeta=0.0,
         max_force=50.0
@@ -62,14 +58,15 @@ def main():
     # 4) Create LQR from cartpole_sys A,B
     A = cartpole_sys.A
     B = cartpole_sys.B
-    Q = np.diag([0.5, 0.5, 5, 0.5])  # smaller weighting
-    R = np.array([[0.5]])            # bigger weighting on torque
 
+    # Smaller Q, bigger R => less aggressive control
+    Q = np.diag([1,1,1,1])
+    R = np.array([[0.1]])
     dt = 1/240.0
 
     lqr_ctrl = LQRController(A, B, Q, R, dt=dt, max_force=cartpole_sys.max_force)
 
-    # 5) Disable default velocity controls on the 4 wheels
+    # 5) Disable default velocity controls on wheels
     num_joints = p.getNumJoints(cartpoleId)
     for j in range(num_joints):
         p.setJointMotorControl2(
@@ -79,39 +76,39 @@ def main():
             force=0
         )
 
-    # 6) Main loop: measure "x, x_dot, theta, theta_dot"
-    #   We'll rely on get_cartpole_state, but that might only read the
-    #   "pole_joint" for angle. For "x" we might approximate from the base's x pos.
+    # We'll define a smaller motor torque bound to mimic a low-power DC motor
+    maxWheelTorque = 3.0  # in Nm (example). Adjust if still flying around
+
     try:
         while True:
             p.stepSimulation()
             time.sleep(dt)
 
-            # Read state from cartpole_sys
+            # 6) Read state from cartpole_sys
             state = cartpole_sys.get_cartpole_state()
 
-            # We'll interpret "x, x_dot" from the base link, or from the motion in the X direction
-            # If cartpole_sys is reading them from the base link properly, great.
+            # Single scalar "force" from LQR
+            force = lqr_ctrl.compute_control(state)
 
-            force = lqr_ctrl.compute_control(state)  # a single scalar "F"
+            # We'll treat "force" as total horizontal effort => convert to wheel torque
+            # For simplicity, do torque_left=torque_right=force/2
+            torque_left = 0.5 * force
+            torque_right = 0.5 * force
 
-            # Now apply that as torque on the FRONT wheels:
-            # e.g. half the torque to left_rear, half to right_rear
-            # Convert from "force" to "wheel torque"
-            # For simplicity,just do torqueLeft=torqueRight=force/2
-            torque_left = force * 0.5
-            torque_right = force * 0.5
+            # Now clamp them to a "small DC motor" torque limit
+            torque_left = np.clip(torque_left, -maxWheelTorque, maxWheelTorque)
+            torque_right = np.clip(torque_right, -maxWheelTorque, maxWheelTorque)
 
-            # Apply torque control
+            # Apply torque to front wheels with maxForce also set
             p.setJointMotorControl2(
-                bodyUniqueId=cartpoleId,
-                jointIndex=left_front_joint_index,
+                bodyIndex=cartpoleId,
+                jointIndex=left_joint_index,
                 controlMode=p.TORQUE_CONTROL,
-                force=torque_left
+                force=torque_left 
             )
             p.setJointMotorControl2(
                 bodyUniqueId=cartpoleId,
-                jointIndex=right_front_joint_index,
+                jointIndex=right_joint_index,
                 controlMode=p.TORQUE_CONTROL,
                 force=torque_right
             )

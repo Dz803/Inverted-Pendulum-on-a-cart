@@ -16,14 +16,14 @@ class CartpoleSystem:
                  body_id: int,
                  cart_joint_index: int = 0,
                  pole_joint_index: int = 1,
-                 M: float = 1.0,     # cart mass
-                 m: float = 0.1,    # pole mass
-                 l: float = 0.5,    # pole length
-                 g: float = 9.81,
-                 delta: float = 0.05,  # cart friction
-                 c: float = 0.02,      # pivot friction
-                 zeta: float = 0.0,    # extra pivot torque factor
-                 max_force: float = 100.0):
+                 M=0.28,  # total cart mass
+                 m=0.05,  # total pole mass
+                 l=0.30,
+                 g=9.81,
+                 delta=0.04,
+                 c=0.015,
+                 zeta=0.0,
+                 max_force=50.0):
         """
         Args:
             body_id: PyBullet body unique ID for the cartpole URDF
