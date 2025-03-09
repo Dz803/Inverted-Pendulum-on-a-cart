@@ -60,7 +60,7 @@ def main():
     B = cartpole_sys.B
 
     # Smaller Q, bigger R => less aggressive control
-    Q = np.diag([1,1,1,1])
+    Q = np.diag([2,2,2,1])
     R = np.array([[0.1]])
     dt = 1/240.0
 
