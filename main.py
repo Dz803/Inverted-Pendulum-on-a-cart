@@ -5,6 +5,7 @@ import numpy as np
 
 from cartpole_system import CartpoleSystem
 from controller import LQRController
+import controller
 
 def main():
     # 1) Connect to PyBullet
@@ -64,7 +65,8 @@ def main():
     R = np.array([[0.1]])
     dt = 1/240.0
 
-    lqr_ctrl = LQRController(A, B, Q, R, dt=dt, max_force=cartpole_sys.max_force)
+    lqr_ctrl = LQRController(A, B, Q, R, dt=dt, max_force=cartpole_sys.max_force,target_state=np.array([5,0,0,0]))
+    mpc_ctrl = controller.MPCController(A, B, Q, R, horizon = 5, dt=dt, max_force=cartpole_sys.max_force,target_state=np.array([5,0,0,0]))
 
     # 5) Disable default velocity controls on wheels
     num_joints = p.getNumJoints(cartpoleId)
@@ -88,7 +90,7 @@ def main():
             state = cartpole_sys.get_cartpole_state()
 
             # Single scalar "force" from LQR
-            force = lqr_ctrl.compute_control(state)
+            force = mpc_ctrl.compute_control(state)
 
             # We'll treat "force" as total horizontal effort => convert to wheel torque
             # For simplicity, do torque_left=torque_right=force/2
