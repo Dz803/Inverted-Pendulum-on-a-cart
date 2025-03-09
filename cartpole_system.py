@@ -24,7 +24,7 @@ class CartpoleSystem:
                  c=0.015,
                  zeta=0.0,
                  max_force=50.0,
-                 wheel_radius=0.03):
+                 wheel_radius=0.0576):
         """
         Args:
             body_id: PyBullet body unique ID for the cartpole URDF

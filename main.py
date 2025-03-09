@@ -61,12 +61,12 @@ def main():
     B = cartpole_sys.B
 
     # Smaller Q, bigger R => less aggressive control
-    Q = np.diag([2,2,2,1])
+    Q = np.diag([1,2,2,1])
     R = np.array([[0.1]])
     dt = 1/240.0
 
     lqr_ctrl = LQRController(A, B, Q, R, dt=dt, max_force=cartpole_sys.max_force,target_state=np.array([5,0,0,0]))
-    mpc_ctrl = controller.MPCController(A, B, Q, R, horizon = 5, dt=dt, max_force=cartpole_sys.max_force,target_state=np.array([5,0,0,0]))
+    mpc_ctrl = controller.MPCController(A, B, Q, R, horizon = 10, dt=dt, max_force=cartpole_sys.max_force,target_state=np.array([0,0,0,0]))
 
     # 5) Disable default velocity controls on wheels
     num_joints = p.getNumJoints(cartpoleId)
@@ -80,6 +80,15 @@ def main():
 
     # We'll define a smaller motor torque bound to mimic a low-power DC motor
     maxWheelTorque = 3.0  # in Nm (example). Adjust if still flying around
+
+    aabb_min, aabb_max = p.getAABB(cartpoleId, linkIndex=0)
+    # radius approximation:
+    diameter_x = aabb_max[0] - aabb_min[0]
+    diameter_y = aabb_max[1] - aabb_min[1]
+    diameter = max(diameter_x, diameter_y)
+    wheel_radius = diameter / 2
+    print(f"Estimated wheel radius from AABB: {wheel_radius:.4f} meters")
+
 
     try:
         while True:
