@@ -7,6 +7,18 @@ from cartpole_system import CartpoleSystem
 from controller import LQRController
 import controller
 
+def estimate_pole_length(cartpoleId, pole_link_index):
+    """
+    Estimate the pole length by subtracting the AABB min from AABB max 
+    along the primary axis (e.g. z-axis) if your pole is oriented vertically.
+    """
+    aabb_min, aabb_max = p.getAABB(cartpoleId, pole_link_index)
+    
+    # the pole is aligned along z, then pole_length ≈ maxZ - minZ
+    pole_length_z = aabb_max[2] - aabb_min[2]
+    
+    return pole_length_z
+
 def main():
     # 1) Connect to PyBullet
     p.connect(p.GUI)
@@ -15,7 +27,7 @@ def main():
     planeId = p.loadURDF("plane.urdf")
 
     # 2) Load 4-wheel cart-pole URDF
-    startPos = [0, 0, 0.08]
+    startPos = [0, 0, 0.07]
     startOrientation = p.getQuaternionFromEuler([0, 0, 0])
     cartpoleId = p.loadURDF(
         "./cart_pole/my_cartpole.urdf",
@@ -46,8 +58,8 @@ def main():
     # 3) Build CartpoleSystem
     cartpole_sys = CartpoleSystem(body_id=cartpoleId,cart_joint_index=left_joint_index,pole_joint_index=pole_joint_index,
         M=0.28,  # total cart mass
-        m=0.05,  # total pole mass
-        l=0.30,
+        m=0.075,  # total pole mass
+        l=0.3222, # pole length
         g=9.81,
         delta=0.04,
         c=0.015,
@@ -56,19 +68,7 @@ def main():
     )
     cartpole_sys.print_info()
 
-    # 4) Create LQR from cartpole_sys A,B
-    A = cartpole_sys.A
-    B = cartpole_sys.B
-
-    # Smaller Q, bigger R => less aggressive control
-    Q = np.diag([1,2,2,1])
-    R = np.array([[0.1]])
-    dt = 1/240.0
-
-    lqr_ctrl = LQRController(A, B, Q, R, dt=dt, max_force=cartpole_sys.max_force,target_state=np.array([-1.83,0,0,0]))
-    mpc_ctrl = controller.MPCController(A, B, Q, R, horizon = 10, dt=dt, max_force=cartpole_sys.max_force,target_state=np.array([-1.83,0,0,0]))
-
-    # 5) Disable default velocity controls on wheels
+    # 4) Disable default velocity controls on wheels
     num_joints = p.getNumJoints(cartpoleId)
     for j in range(num_joints):
         p.setJointMotorControl2(
@@ -78,8 +78,7 @@ def main():
             force=0
         )
 
-    # We'll define a smaller motor torque bound to mimic a low-power DC motor
-    maxWheelTorque = 3.0  # in Nm (example). Adjust if still flying around
+    # 5) Estimate wheel radius, pole length from AABB
 
     aabb_min, aabb_max = p.getAABB(cartpoleId, linkIndex=0)
     # radius approximation:
@@ -88,46 +87,59 @@ def main():
     diameter = max(diameter_x, diameter_y)
     wheel_radius = diameter / 2
     print(f"Estimated wheel radius from AABB: {wheel_radius:.4f} meters")
+    print(f"Estimated pole length from AABB: {estimate_pole_length(cartpoleId, pole_link_index=4):.4f} meters")
 
 
-    try:
-        while True:
-            p.stepSimulation()
-            time.sleep(dt)
+    # 6) Create LQR from cartpole_sys A,B
+    A = cartpole_sys.A
+    B = cartpole_sys.B
+    # In main(), when defining Q and R for LQRController:
 
-            # 6) Read state from cartpole_sys
-            state = cartpole_sys.get_cartpole_state()
+    Q = np.diag([
+        7,
+        100,
+        40000,
+        40000
+    ])
+    R = np.array([[10]])
 
-            # Single scalar "force" from LQR
-            force = lqr_ctrl.compute_control(state)
+    dt = 1/240
+    lqr_ctrl = LQRController(A, B, Q, R, dt=dt, max_force=cartpole_sys.max_force,target_state=np.array([1.83,0,0,0]))
 
-            # We'll treat "force" as total horizontal effort => convert to wheel torque
-            # For simplicity, do torque_left=torque_right=force/2
-            torque_left = 0.5 * force
-            torque_right = 0.5 * force
+    mpc_ctrl = controller.MPCController(A, B, Q, R, horizon = 10, dt=dt, max_force=cartpole_sys.max_force,target_state=np.array([-1.83,0,0,0]))
 
-            # Now clamp them to a "small DC motor" torque limit
-            torque_left = np.clip(torque_left, -maxWheelTorque, maxWheelTorque)
-            torque_right = np.clip(torque_right, -maxWheelTorque, maxWheelTorque)
+    # We'll define a smaller motor torque bound to mimic a low-power DC motor
+    maxWheelTorque = 5.0  # in Nm
 
-            # Apply torque to front wheels with maxForce also set
-            p.setJointMotorControl2(
-                bodyIndex=cartpoleId,
-                jointIndex=left_joint_index,
-                controlMode=p.TORQUE_CONTROL,
-                force=torque_left 
-            )
-            p.setJointMotorControl2(
-                bodyUniqueId=cartpoleId,
-                jointIndex=right_joint_index,
-                controlMode=p.TORQUE_CONTROL,
-                force=torque_right
-            )
+# 7) Run simulation
+    while p.isConnected():
+        p.stepSimulation()
+        time.sleep(1./240.)
 
-    except KeyboardInterrupt:
-        print("Exiting simulation.")
-    finally:
-        p.disconnect()
+        #debugonly
+        #time.sleep(1./5.)
+
+        # 6) Read state from cartpole_sys
+        state = cartpole_sys.get_cartpole_state()
+        # Single scalar "force" from LQR
+        force = lqr_ctrl.compute_control(state)
+        print(f"State: x={state[0]:.3f}, x_dot={state[1]:.3f}, theta={state[2]:.3f}, theta_dot={state[3]:.3f}, Force={force:.3f}")
+
+        # We'll treat "force" as total horizontal effort => convert to wheel torque
+        # For simplicity, do torque_left=torque_right=force/2
+        torque_left = 0.5 * force
+        torque_right = 0.5 * force
+
+        # Now clamp them to a "small DC motor" torque limit
+        torque_left = np.clip(torque_left, -maxWheelTorque, maxWheelTorque)
+        torque_right = np.clip(torque_right, -maxWheelTorque, maxWheelTorque)
+
+        p.setJointMotorControlArray(bodyUniqueId=cartpoleId,
+            jointIndices=[left_joint_index, right_joint_index],
+            controlMode=p.TORQUE_CONTROL,
+            forces=[torque_left, torque_right]
+        )
+
 
 
 if __name__ == "__main__":

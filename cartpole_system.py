@@ -96,29 +96,30 @@ class CartpoleSystem:
 
     def get_cartpole_state(self) -> np.ndarray:
         """
-        Using the 'direct approach':
-          - We interpret cart position, x, from the drive wheel's encoder angle:  x = wheel_radius * angle
-          - We interpret cart velocity, x_dot, from the wheel's angular velocity: x_dot = wheel_radius * angle_dot
-          - We read the pole joint to get (theta, theta_dot)
+        Using PyBullet's `getBasePositionAndOrientation` and `getBaseVelocity`
+        to get direct linear position and velocity of the cart base link.
+        Pole angle and angular velocity are still from the pole joint.
 
         Returns a 1D numpy array: [x, x_dot, theta, theta_dot]
         """
-        # 1) Read the drive wheel joint
-        wheel_info = p.getJointState(self.body_id, self.cart_joint_index)
-        wheel_angle = wheel_info[0]       # revolute angle
-        wheel_angular_vel = wheel_info[1] # d(angle)/dt
+        # 1) Get cart base link position and velocity
+        cart_state = p.getBasePositionAndOrientation(self.body_id)
+        cart_pos_xyz = cart_state[0] #cart_state[0] is a tuple (x,y,z)
+        cart_pos_x = cart_pos_xyz[0] # We are interested in x-direction (horizontal)
 
-        # Convert to linear displacement/velocity
-        x_pos = self.wheel_radius * wheel_angle
-        x_dot = self.wheel_radius * wheel_angular_vel
+        cart_velocity_info = p.getBaseVelocity(self.body_id)
+        cart_linear_vel_xyz = cart_velocity_info[0] # cart_velocity_info[0] is linear velocity tuple (vx, vy, vz)
+        cart_vel_x = cart_linear_vel_xyz[0] # We are interested in x-velocity (horizontal)
 
-        # 2) Read the pole revolve joint
+
+        # 2) Read the pole revolve joint (for angle and angular velocity)
         pole_info = p.getJointState(self.body_id, self.pole_joint_index)
-        theta = pole_info[0]
-        theta_dot = pole_info[1]
+        theta = -pole_info[0]  # NEGATED for sign correction (important!)
+        theta_dot = -pole_info[1] # NEGATED for sign correction (important!)
+
 
         # Return the 4D state
-        return np.array([x_pos, x_dot, theta, theta_dot], dtype=float)
+        return np.array([cart_pos_x, cart_vel_x, theta, theta_dot], dtype=float)
 
     def print_info(self):
         """Simple debug function to show constants and A,B."""
