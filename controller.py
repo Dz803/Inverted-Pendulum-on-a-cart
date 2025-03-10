@@ -1,44 +1,25 @@
 import numpy as np
-import cvxpy as cp
-from scipy.linalg import expm
+import cvxpy as cp  # for possible MPC usage
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional
 
-# For LQR and pole placement
+# For LQR, pole placement, etc.
 from scipy.linalg import solve_continuous_are
 from scipy.signal import place_poles
 
-def c2d_zoh(A, B, dt):
-    """
-    Discretize continuous-time LTI system x_dot = A*x + B*u
-    using Zero-Order Hold on the input over [0,dt].
-    Returns (Ad, Bd) for the discrete system:
-        x[k+1] = Ad x[k] + Bd u[k].
-    """
-    n = A.shape[0]
-    m = B.shape[1]
 
-    # Build augmented matrix
-    M = np.block([
-        [A, B],
-        [np.zeros((m, n)), np.zeros((m, m))]
-    ])
-    # Compute matrix exponential
-    Mexp = expm(M * dt)
-
-    # Extract Ad, Bd
-    Ad = Mexp[:n, :n]
-    Bd = Mexp[:n, n:]
-    return Ad, Bd
 
 ###############################################################################
 # Base Abstract Class
 ###############################################################################
-
 class CartpoleController(ABC):
     """
     Abstract base class for cartpole controllers.
-    Defines the interface for different control strategies (PID, LQR, Pole Placement, MPC).
+    Defines the interface for different control strategies (PID, LQR, Pole Placement, MPC, Nonlinear, etc.).
+    
+    State convention (4D):
+       state = [x, x_dot, theta, theta_dot]
+    where theta = 0 means the pole is UPRIGHT (if that's your chosen convention).
     """
 
     def __init__(self, 
@@ -47,13 +28,13 @@ class CartpoleController(ABC):
                  state_bounds: Optional[List[Tuple[float, float]]] = None,
                  target_state: Optional[List[float]] = None):
         """
-        Initialize the controller with basic parameters, including a desired target state.
+        Initialize the controller with basic parameters.
 
         Args:
-            dt: Control timestep (seconds)
-            max_force: Maximum allowed force (magnitude) for the cart
-            state_bounds: Optional list of (min, max) for [x, x_dot, theta, theta_dot]
-            target_state: Desired setpoint [x*, xdot*, theta*, thetadot*] for regulation
+            dt: Control timestep (seconds).
+            max_force: Maximum allowed force (magnitude) for the cart.
+            state_bounds: Optional list of (min, max) for each state dimension [x, x_dot, theta, theta_dot].
+            target_state: Desired setpoint [x*, xdot*, theta*, thetadot*] for regulation.
         """
         self.dt = dt
         self.max_force = max_force
@@ -68,26 +49,25 @@ class CartpoleController(ABC):
         self.control_min = -max_force
         self.control_max = max_force
         
-        # State tracking
+        # For storing previous step info if needed
         self.prev_state = None
         self.prev_error = None
 
         # Target state
         if target_state is None:
-            # By default, we assume [0, 0, 0, 0] => upright, cart at origin
+            # default => [0, 0, 0, 0]: cart at 0, upright pole
             self.target_state = [0.0, 0.0, 0.0, 0.0]
         else:
             self.target_state = target_state
 
     @abstractmethod
-    def compute_control(self, 
-                        state: List[float]) -> float:
+    def compute_control(self, state: List[float]) -> float:
         """
         Compute the control output based on current state.
-        
+
         Args:
-            state: [cart_pos, cart_vel, pole_angle, pole_vel]
-        
+            state: [x, x_dot, theta, theta_dot]
+
         Returns:
             Control force to apply to the cart
         """
@@ -102,43 +82,41 @@ class CartpoleController(ABC):
         return np.clip(u, self.control_min, self.control_max)
 
     def bound_state(self, state: List[float]) -> List[float]:
-        """Limit the state to within allowed bounds (if you want to limit unrealistic states)."""
+        """Limit each state dimension to within specified bounds (if you want to clamp unrealistic states)."""
         return [
             np.clip(state[i], self.state_bounds[i][0], self.state_bounds[i][1]) 
             for i in range(len(state))
         ]
 
     def reset(self) -> None:
-        """Reset controller internal state."""
+        """Reset any internal state (integral terms, prev errors, etc.)."""
         self.prev_state = None
         self.prev_error = None
 
-    def get_state_error(self, 
-                        state: List[float]) -> List[float]:
+    def get_state_error(self, state: List[float]) -> List[float]:
         """
-        Calculate error between current state and self.target_state. 
-        For the angle error, do wrap-around to keep it in (-pi, pi).
+        Calculate error = (state - target_state).
+        For the angle dimension, we often do a wrap-around so the angle error stays in (-pi, pi).
         """
-        # e.g. [x - x*, xdot - xdot*, (theta - theta*), (thetadot - thetadot*)]
-        # Then wrap the angle difference
+        # e.g. e_theta = (theta - theta_target) mod 2pi in (-pi, pi)
         theta_error = state[2] - self.target_state[2]
-        theta_error = (theta_error + np.pi) % (2 * np.pi) - np.pi #normalisation
+        theta_error = (theta_error + np.pi) % (2 * np.pi) - np.pi
         
         return [
-            state[0] - self.target_state[0],
-            state[1] - self.target_state[1],
-            theta_error,
-            state[3] - self.target_state[3]
+            state[0] - self.target_state[0],  # x - x*
+            state[1] - self.target_state[1],  # xdot - xdot*
+            theta_error,                      # wrapped angle error
+            state[3] - self.target_state[3]   # thetadot - thetadot*
         ]
 
 
 ###############################################################################
-# PID Controller
+# 1) PID Controller
 ###############################################################################
 class PIDController(CartpoleController):
     """
-    Simple PID controller focusing on the pole angle (3rd state) but easily extendable
-    to multi-input if you wish.
+    Simple PID controller focusing on the pole angle (3rd state) 
+    but easily extendable to multi-input if you wish.
     """
     def __init__(self, 
                  kp: float, 
@@ -160,12 +138,13 @@ class PIDController(CartpoleController):
 
         Args:
             state: [x, xdot, theta, thetadot]
+
         Returns:
             float: Force to apply
         """
         error_vec = self.get_state_error(state)
         # e = [ex, e_xdot, e_theta, e_thetadot]
-        # If we just want to control the pole angle, we look at e_theta
+        # We'll do PID on e_theta (index=2)
         pole_angle_err = error_vec[2]
 
         # Integrator
@@ -177,7 +156,7 @@ class PIDController(CartpoleController):
         else:
             derivative = 0.0
         
-        # PID formula: u = Kp*e + Ki*int(e) + Kd*de/dt
+        # PID formula: u = Kp*e + Ki*int(e) + Kd*d(e)/dt
         u = (self.kp * pole_angle_err
              + self.ki * self.integral
              + self.kd * derivative)
@@ -187,72 +166,13 @@ class PIDController(CartpoleController):
 
 
 ###############################################################################
-# LQR Controller
-###############################################################################
-class LQRController(CartpoleController):
-    """
-    Linear Quadratic Regulator controller for the linearized cartpole system.
-    Minimizes the integral of (x^T Q x + u^T R u) over infinite horizon.
-
-    We allow a reference state x*, so we do 
-         u = -K (x - x*)
-    which is effectively controlling x - x* to 0. 
-    """
-    def __init__(self, 
-                 A: np.ndarray, 
-                 B: np.ndarray, 
-                 Q: np.ndarray, 
-                 R: np.ndarray,
-                 dt: float = 1/240.,
-                 max_force: float = 100.0,
-                 target_state: Optional[List[float]] = None):
-        """
-        Args:
-            A, B: continuous-time system matrices
-            Q, R: weighting matrices for states and input
-        """
-        super().__init__(dt, max_force, target_state=target_state)
-        self.A = A
-        self.B = B
-        self.Q = Q
-        self.R = R
-        self.K = self._solve_lqr(A, B, Q, R)  # Optimal gain matrix
-
-    def _solve_lqr(self, A, B, Q, R):
-        """
-        Solve the continuous-time Algebraic Riccati Equation (ARE):
-            A^T P + P A - P B R^-1 B^T P + Q = 0
-        Then K = R^-1 B^T P
-        """
-        P = solve_continuous_are(A, B, Q, R)
-        K = np.linalg.inv(R) @ (B.T @ P)
-        return K
-
-    def compute_control(self, state: List[float]) -> float:
-        """
-        LQR Control law: 
-            e = (x - x_ref)
-            u = -K e
-        """
-        # e = x - x_ref
-        # We'll just get that from get_state_error:
-        error_vec = self.get_state_error(state)  
-        # error_vec = [x - x*, xdot- xdot*, theta - theta*, thetadot - thetadot*]
-        # so if we let ex = error_vec, then u = -K * ex
-        e = np.array(error_vec).reshape(-1, 1)  
-        u = -(self.K @ e)  # shape (1,1)
-
-        return self.bound_control(u.item())
-
-
-###############################################################################
-# Pole Placement Controller
+# 2) Pole Placement Controller
 ###############################################################################
 class PolePlacementController(CartpoleController):
     """
-    Pole Placement controller for the cartpole system.
-    We pick desired closed-loop poles and compute K to place them there,
-    with the reference offset as well.
+    Pole-Placement controller for the linearized cart-pole system.
+    We pick desired closed-loop poles and compute K to place them there.
+    Then u = -K (x - x_ref).
     """
     def __init__(self, 
                  A: np.ndarray, 
@@ -261,6 +181,10 @@ class PolePlacementController(CartpoleController):
                  dt: float = 1/240.,
                  max_force: float = 100.0,
                  target_state: Optional[List[float]] = None):
+        """
+        A, B: continuous-time or linearized system matrices
+        desired_poles: list of 4 desired poles (complex) for place_poles
+        """
         super().__init__(dt, max_force, target_state=target_state)
         self.A = A
         self.B = B
@@ -268,133 +192,215 @@ class PolePlacementController(CartpoleController):
         self.K = self._place_poles(A, B, desired_poles)
 
     def _place_poles(self, A, B, poles):
-        """
-        place_poles returns a result object whose .gain_matrix is the K we want
-        """
         result = place_poles(A, B, poles)
         return result.gain_matrix
 
     def compute_control(self, state: List[float]) -> float:
         """
-        Control law: u = -K (x - x_ref)
+        Control law: u = -K ( x - x_ref ).
         """
         error_vec = self.get_state_error(state)
         e = np.array(error_vec).reshape(-1, 1)
         u = -(self.K @ e)
         return self.bound_control(u.item())
 
+
 ###############################################################################
-# MPC Controller (Matrix Exponential Discretization)
+# 3) Nonlinear Controller (Partial Feedback Linearization)
 ###############################################################################
-class MPCController(CartpoleController):
+class NonlinearController(CartpoleController):
     """
-    Minimal linear MPC controller using cvxpy for a receding-horizon approach.
-    Now uses a matrix exponential for the zero-order hold (ZOH) discretization.
+    An example of a simple partial feedback linearization for 
+    stabilizing the pole upright (theta = 0) in the cart-pole system.
+
+    We'll assume:
+       - The pole is a point mass at distance l from pivot (so moment of inertia I = m*l^2).
+       - We do a PD law on theta to get a desired theta_ddot.
+       - Solve the cart-pole dynamics for the needed 'u' (force) that achieves that acceleration.
+    
+    The continuous equations for a cart-pole (with I = m l^2) are:
+
+       (1) (M + m) x_ddot + m l cos(theta)*theta_ddot - m l sin(theta)* (theta_dot^2) = u
+       (2) (I + m l^2) theta_ddot + m l cos(theta)* x_ddot = m g l sin(theta)
+
+    We'll define:
+       desired theta_ddot = - Kp*(theta) - Kd*(theta_dot)
+       solve eqn(2) for x_ddot
+       then plug x_ddot, theta_ddot into eqn(1) to get u.
     """
-    def __init__(self, 
-                 A: np.ndarray,
-                 B: np.ndarray,
-                 Q: np.ndarray,
-                 R: np.ndarray,
-                 horizon: int = 10,
+    def __init__(self,
+                 M: float,  # cart mass
+                 m: float,  # pole mass
+                 l: float,  # half pole length (or full pivot length if that's your URDF)
+                 kp: float, # PD gains on angle
+                 kd: float, 
                  dt: float = 1/240.,
                  max_force: float = 100.0,
                  target_state: Optional[List[float]] = None):
+        """
+        If your physical pole is truly from pivot to tip = l, 
+        then moment of inertia I ~ m*l^2 for a point mass at distance l.
+        Adjust if you have a distributed mass or different pivot offset.
+        """
         super().__init__(dt, max_force, target_state=target_state)
-        self.A_c = A
-        self.B_c = B
-        self.Q = Q
-        self.R = R
-        self.horizon = horizon
+        self.M = M
+        self.m = m
+        self.l = l
+        self.I = m * (l**2)   # point mass at the tip
+        self.g = 9.81
+        self.kp = kp
+        self.kd = kd
 
     def compute_control(self, state: List[float]) -> float:
         """
-        Solve the finite-horizon MPC problem at each timestep,
-        penalizing deviation from self.target_state, i.e. (x - x_ref),
-        with a more accurate c2d approach (ZOH).
+        1) PD on (theta, theta_dot) => desired theta_ddot
+        2) Solve eqn(2) for x_ddot
+        3) Plug x_ddot, theta_ddot into eqn(1) => control = u
         """
-        # 1) Convert (A_c,B_c) to discrete with matrix exponent
-        Ad, Bd = c2d_zoh(self.A_c, self.B_c, self.dt)
+        # Unpack state
+        x, xdot, theta, thetadot = state
 
-        # 2) We'll define x_ref as self.target_state
-        x_ref = np.array(self.target_state, dtype=float).reshape(-1,1)
+        # PD law for angle => theta_ddot_des
+        # target angle is self.target_state[2], assume 0 if we want upright
+        angle_error = theta - self.target_state[2]
+        angle_error = (angle_error + np.pi) % (2*np.pi) - np.pi  # wrap
+        angle_rate_error = thetadot - self.target_state[3]
 
-        # 3) Build the MPC optimization problem
-        x_var = cp.Variable((4, self.horizon+1))
-        u_var = cp.Variable((1, self.horizon))
+        theta_ddot_des = -self.kp * angle_error - self.kd * angle_rate_error
 
-        cost = 0
-        constraints = []
-        # initial condition
-        constraints.append(x_var[:,0] == state)
+        # eqn(2): (I + m l^2)*theta_ddot + m l cos(theta)* x_ddot = m g l sin(theta)
+        # solve for x_ddot:
+        # x_ddot = [ m*g*l sin(theta) - (I + m*l^2)*theta_ddot_des ] / [ m*l cos(theta) ]
+        # watch out if cos(theta) ~ 0 => near horizontal...
+        cos_th = np.cos(theta)
+        sin_th = np.sin(theta)
 
-        for k in range(self.horizon):
-            # cost: penalize (x_k - x_ref) plus input
-            cost += cp.quad_form(x_var[:,k] - x_ref[:,0], self.Q)
-            cost += cp.quad_form(u_var[:,k], self.R)
+        # If cos_th is near zero, partial feedback linearization can blow up.
+        # We'll just do a quick check or clamp for numeric safety:
+        if abs(cos_th) < 1e-4:
+            # fallback: or just clamp
+            cos_th = np.sign(cos_th)*1e-4
 
-            # discrete dynamics
-            constraints.append(x_var[:,k+1] == Ad @ x_var[:,k] + Bd @ u_var[:,k])
+        num = self.m*self.g*self.l*sin_th - (self.I + self.m*(self.l**2))*theta_ddot_des
+        den = self.m*self.l*cos_th
+        x_ddot_des = num / den
 
-            # force/torque constraint
-            constraints.append(u_var[:,k] <= self.control_max)
-            constraints.append(u_var[:,k] >= self.control_min)
+        # eqn(1): (M + m)* x_ddot + m l cos(theta)*theta_ddot - m l sin(theta)* (theta_dot^2) = u
+        # plug in x_ddot_des and theta_ddot_des
+        u = (self.M + self.m)*x_ddot_des \
+            + self.m*self.l*cos_th*theta_ddot_des \
+            - self.m*self.l*sin_th*(thetadot**2)
 
-        # terminal cost
-        cost += cp.quad_form(x_var[:,self.horizon] - x_ref[:,0], self.Q)
+        # bound the final control
+        return self.bound_control(u)
 
-        prob = cp.Problem(cp.Minimize(cost), constraints)
-        prob.solve(solver=cp.OSQP, verbose=False)
 
-        if prob.status not in ["optimal", "optimal_inaccurate"]:
-            # fallback if no feasible solution
-            return 0.0
 
-        # first control action
-        force = u_var.value[0,0]
-        # Clip just in case
-        force = np.clip(force, self.control_min, self.control_max)
-        return float(force)
 
-###############################################################################
-# Quick Test / Demo
-###############################################################################
-if __name__ == "__main__":
+########################################################################
+# Discrete Pole-Placement Controller
+########################################################################
+class DiscretePolePlacementController(CartpoleController):
     """
-    Example usage with some dummy A, B, Q, R, poles, and a nonzero target.
-    In a real cartpole, you'd derive or approximate these from a linearization
-    about the upright equilibrium or some desired setpoint.
+    Discrete-time pole placement on the linearized cartpole system.
+    We:
+      - compute (Ad, Bd) from (A, B)
+      - place poles in the z-plane
+      - store K
+      - at each discrete step k, do u[k] = -K (x[k] - x_ref)
+    For sim2real, you normally run this in a loop at dt intervals,
+    but in this example, we'll still be calling it inside solve_ivp for illustration.
     """
-    A_dummy = np.array([[0, 1, 0, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 0, 1],
-                        [0, 0, 0, 0]], dtype=float)
-    B_dummy = np.array([[0],
-                        [0],
-                        [0],
-                        [1]], dtype=float)
 
-    Q_dummy = np.eye(4)
-    R_dummy = np.array([[1]])
+    def __init__(self, Ad, Bd, desired_poles, dt, max_force=20.0, target_state=None):
+        """
+        Ad, Bd: discrete-time system (nxn, nx1)
+        desired_poles: e.g. [0.9, 0.8, 0.7, 0.6]
+        dt: sampling period for the discrete-time controller
+        max_force: saturate output
+        target_state: [x*, xdot*, theta*, thetadot*]
+        """
+        self.Ad = Ad
+        self.Bd = Bd
+        self.dt = dt
+        self.max_force = max_force
 
-    # Suppose we want x to be 1.0 and the angle=0
-    # That means [1,0, 0,0]
-    target_x = [1.0, 0.0, 0.0, 0.0]
+        # default target
+        if target_state is None:
+            target_state = [0, 0, 0, 0]
+        self.target_state = np.array(target_state)
 
-    # LQR
-    lqr_ctrl = LQRController(A_dummy, B_dummy, Q_dummy, R_dummy, target_state=target_x)
-    # Pole Placement
-    desired_poles = [-2, -2.5, -3, -3.5]
-    pole_ctrl = PolePlacementController(A_dummy, B_dummy, desired_poles, target_state=target_x)
-    # PID
-    pid_ctrl = PIDController(kp=10.0, ki=0.1, kd=1.0, target_state=target_x)
-    # MPC
-    mpc_ctrl = MPCController(A_dummy, B_dummy, Q_dummy, R_dummy, horizon=5, target_state=target_x)
+        # Compute K
+        placed = place_poles(Ad, Bd, desired_poles)
+        self.K = placed.gain_matrix  # shape (1,4)
 
-    # Test single-step control with a random-ish state
-    test_state = [0.1, 0.0, 0.2, 0.0]  # x=0.1m, xdot=0, theta=0.2rad, thetadot=0
-    print("===== Controller Demo w/ nonzero target =====")
-    print("LQR control output:        ", lqr_ctrl.compute_control(test_state))
-    print("Pole Placement output:     ", pole_ctrl.compute_control(test_state))
-    print("PID control output:        ", pid_ctrl.compute_control(test_state))
-    print("MPC control output:        ", mpc_ctrl.compute_control(test_state))
+        # for discrete stepping
+        self.last_update_time = 0.0
+        self.u_current = 0.0
+        self.x_error_prev = None
+
+    def compute_control(self, t, state):
+        """
+        We'll only update the control every dt seconds,
+        otherwise hold it (zero-order hold).
+        """
+        # If enough time passed to do a 'discrete step'
+        if t - self.last_update_time >= self.dt:
+            # compute error
+            x_err = self.get_state_error(state)
+            # discrete control law: u = -K e
+            u = -(self.K @ x_err)
+            # saturate
+            u = np.clip(u.item(), -self.max_force, self.max_force)
+
+            # store
+            self.u_current = u
+            self.last_update_time = t
+
+        return self.u_current
+
+
+from scipy.linalg import solve_discrete_are
+
+class DiscreteLQRController(CartpoleController):
+    """
+    Discrete-time LQR controller for the cart-pole system.
+    It uses the discrete algebraic Riccati equation (DARE) to compute the optimal gain.
+    
+    The discrete system is:
+       x[k+1] = A_d x[k] + B_d u[k]
+    and the control law is:
+       u[k] = -K (x[k] - x_ref)
+    where K is computed as:
+       P = solve_discrete_are(A_d, B_d, Q, R)
+       K = (B_d^T P B_d + R)^{-1} B_d^T P A_d
+    """
+    def __init__(self, Ad: np.ndarray, Bd: np.ndarray, Q: np.ndarray, R: np.ndarray,
+                 dt: float = 1/240., max_force: float = 20.0, target_state: Optional[List[float]] = None):
+        super().__init__(dt, max_force, target_state=target_state)
+        self.Ad = Ad
+        self.Bd = Bd
+        self.dt = dt
+        if target_state is None:
+            target_state = [0, 0, 0, 0]
+        self.target_state = np.array(target_state)
+        # Solve DARE to get the optimal P and then compute K.
+        P = solve_discrete_are(Ad, Bd, Q, R)
+        self.K = np.linalg.inv(Bd.T @ P @ Bd + R) @ (Bd.T @ P @ Ad)
+        
+        # For discrete stepping (sample-and-hold)
+        self.last_update_time = 0.0
+        self.u_current = 0.0
+
+    def compute_control(self, t, state) -> float:
+        """
+        Update the control every dt seconds; otherwise, hold the previous value.
+        """
+        if t - self.last_update_time >= self.dt:
+            # Compute error: error = (state - target_state)
+            x_err = np.array(self.get_state_error(state)).reshape(-1, 1)
+            u = -(self.K @ x_err)
+            u = np.clip(u.item(), -self.max_force, self.max_force)
+            self.u_current = u
+            self.last_update_time = t
+        return self.u_current
