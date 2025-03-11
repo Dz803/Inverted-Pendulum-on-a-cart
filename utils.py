@@ -140,8 +140,8 @@ def plot_static_results(time, x_pos, theta, control_effort):
 
 def animate_cartpole(time, x_pos, theta, dt, cart_width=0.3, cart_height=0.15, pendulum_length=0.5):
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-0.6, 0.6)
+    ax.set_xlim(-3, 3)
+    ax.set_ylim(-2, 2)
     ax.set_xlabel("X Position (m)")
     ax.set_ylabel("Y Position (m)")
     ax.set_title("Cart-Pole Animation")

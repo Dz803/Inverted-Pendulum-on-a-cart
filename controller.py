@@ -376,13 +376,13 @@ class DiscreteLQRController(CartpoleController):
        K = (B_d^T P B_d + R)^{-1} B_d^T P A_d
     """
     def __init__(self, Ad: np.ndarray, Bd: np.ndarray, Q: np.ndarray, R: np.ndarray,
-                 dt: float = 1/240., max_force: float = 20.0, target_state: Optional[List[float]] = None):
+                 dt: float = 1/100., max_force: float = 20.0, target_state: Optional[List[float]] = None):
         super().__init__(dt, max_force, target_state=target_state)
         self.Ad = Ad
         self.Bd = Bd
         self.dt = dt
         if target_state is None:
-            target_state = [0, 0, 0, 0]
+            target_state = [0, 0, 0,0]
         self.target_state = np.array(target_state)
         # Solve DARE to get the optimal P and then compute K.
         P = solve_discrete_are(Ad, Bd, Q, R)
