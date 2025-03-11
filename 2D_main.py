@@ -74,7 +74,7 @@ def main():
         Ad, Bd = discretize_system(A, B, dt)
         # Define weighting matrices for discrete LQR
         Q = np.diag([0,1.2,2,1.5])
-        R = np.array([[1e9]])
+        R = np.array([[1e10]])
         ctrl = DiscreteLQRController(Ad, Bd, Q, R, dt=dt, max_force=5.0, target_state=[0, 0, 0, 0])
     else:
         raise ValueError("Unknown controller type!")
