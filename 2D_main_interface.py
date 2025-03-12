@@ -35,7 +35,7 @@ def parse_args():
         "--controller", 
         type=str,
         choices=["pid", "cpole", "dpole", "lqr", "dlqr"],
-        default="dlqr",
+        default="pid",
         help="Controller type: 'pid', 'dpole' (discrete pole placement), 'lqr' (continuous LQR), or 'dlqr' (discrete LQR)"
     )
     return parser.parse_args()
@@ -44,7 +44,8 @@ class InteractiveCartpoleSimulation:
     def __init__(self, args):
         self.args = args
         self.dt = 1/240
-        self.T = 5
+        self.T = 10
+
         self.t_eval = np.linspace(0, self.T, int(self.T/self.dt))
         
         # Default Cart-pole parameters
@@ -299,7 +300,7 @@ class InteractiveCartpoleSimulation:
             # This is more complex and not implemented here
             return None
     
-    def plot_poles(self, poles, settling_time=None):
+    def plot_poles(self, poles):
         # Clear previous plot
         self.pole_ax.clear()
         
@@ -325,8 +326,8 @@ class InteractiveCartpoleSimulation:
                 self.pole_ax.set_ylim(-2, 2)
             
             # Update the settling time text display
-            if settling_time is not None:
-                self.settling_time_text.set_text(f"Settling Time: {settling_time:.3f}s")
+            if self.settling_time is not None:
+                self.settling_time_text.set_text(f"Settling Time: {self.settling_time:.3f}s")
             else:
                 self.settling_time_text.set_text("Settling Time: System did not settle")
                 
@@ -402,8 +403,19 @@ class InteractiveCartpoleSimulation:
             control_effort.append(u_)
         
         # Compute settling time
-        threshold = 0.05 * abs(self.x0[2])
+        threshold = np.deg2rad(1.2)  # Set threshold to 1 degree
         settling_time = compute_settling_time(np.abs(theta), self.t_eval, threshold)
+
+        print(f"Overall max |theta|: {np.max(np.abs(theta)):.6f} radians")
+        exceed_indices = np.where(np.abs(theta) >= threshold)[0]
+        if len(exceed_indices) > 0:
+            last_exceed_time = self.t_eval[exceed_indices[-1]]
+            print(f"Last time |theta| >= threshold: {last_exceed_time:.2f}s")
+        else:
+            print("|theta| never exceeds threshold")
+
+        self.settling_time = last_exceed_time + self.dt
+        print(f"Settling time: {self.settling_time:.4f}s")
         
         # Plot results
         self.ax1.plot(self.t_eval, x_pos)
@@ -424,7 +436,7 @@ class InteractiveCartpoleSimulation:
         
         # Calculate and plot closed-loop poles
         poles = self.calculate_closed_loop_poles()
-        self.plot_poles(poles, settling_time)
+        self.plot_poles(poles)
         
         # Add system status to the pendulum angle plot if needed
         if settling_time is None:
