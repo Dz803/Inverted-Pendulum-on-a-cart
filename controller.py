@@ -168,40 +168,50 @@ class PIDController(CartpoleController):
 ###############################################################################
 # 2) Pole Placement Controller
 ###############################################################################
-class PolePlacementController(CartpoleController):
+from scipy.linalg import solve_continuous_are
+
+# 在controller.py中添加以下类
+from scipy.linalg import solve_continuous_are
+
+class ContinuousLQRController(CartpoleController):
     """
-    Pole-Placement controller for the linearized cart-pole system.
-    We pick desired closed-loop poles and compute K to place them there.
-    Then u = -K (x - x_ref).
+    Continuous-time LQR Controller using Algebraic Riccati Equation
+    
+    System dynamics: dx/dt = A x + B u
+    Cost function: J = ∫(x.T Q x + u.T R u) dt
     """
-    def __init__(self, 
-                 A: np.ndarray, 
-                 B: np.ndarray, 
-                 desired_poles: List[complex],
-                 dt: float = 1/240.,
-                 max_force: float = 100.0,
-                 target_state: Optional[List[float]] = None):
-        """
-        A, B: continuous-time or linearized system matrices
-        desired_poles: list of 4 desired poles (complex) for place_poles
-        """
-        super().__init__(dt, max_force, target_state=target_state)
+    
+    def __init__(self, A: np.ndarray, B: np.ndarray, Q: np.ndarray, R: np.ndarray,
+                 max_force: float = 20.0, target_state: Optional[List[float]] = None):
+        
+        super().__init__(dt=0, max_force=max_force, target_state=target_state)  # dt not used in continuous
         self.A = A
         self.B = B
-        self.desired_poles = desired_poles
-        self.K = self._place_poles(A, B, desired_poles)
+        self.Q = Q
+        self.R = R
+        
+        # Solve Continuous-time Algebraic Riccati Equation
+        self.P = solve_continuous_are(A, B, Q, R)
+        
+        # Compute optimal gain matrix
+        self.K = np.linalg.inv(R) @ self.B.T @ self.P
+        
+        # Check stability
+        self._verify_stability()
 
-    def _place_poles(self, A, B, poles):
-        result = place_poles(A, B, poles)
-        return result.gain_matrix
+    def _verify_stability(self):
+        """Check closed-loop eigenvalues"""
+        closed_loop_A = self.A - self.B @ self.K
+        print("Q, R:", self.Q, self.R)
+        eigenvalues = np.linalg.eigvals(closed_loop_A)
+        print("Eigenvalues of (A - B*K):", eigenvalues)
+        if np.any(np.real(eigenvalues) >= 0):
+            warnings.warn("Unstable closed-loop system!", RuntimeWarning)
 
     def compute_control(self, state: List[float]) -> float:
-        """
-        Control law: u = -K ( x - x_ref ).
-        """
-        error_vec = self.get_state_error(state)
-        e = np.array(error_vec).reshape(-1, 1)
-        u = -(self.K @ e)
+        """Continuous control law: u = -K(x - x_ref)"""
+        error = np.array(self.get_state_error(state))
+        u = -self.K @ error
         return self.bound_control(u.item())
 
 
@@ -391,6 +401,9 @@ class DiscreteLQRController(CartpoleController):
         # For discrete stepping (sample-and-hold)
         self.last_update_time = 0.0
         self.u_current = 0.0
+
+        eigenvalues = np.linalg.eig(Ad - Bd @ self.K)[0]
+        print(np.abs(eigenvalues))  # Should all be < 1
 
     def compute_control(self, t, state) -> float:
         """

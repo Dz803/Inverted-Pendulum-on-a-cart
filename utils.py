@@ -3,6 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from matplotlib import animation
 from scipy.linalg import expm
 from typing import Optional
 from scipy.signal import butter, filtfilt
@@ -138,6 +139,7 @@ def plot_static_results(time, x_pos, theta, control_effort):
     plt.tight_layout()
     plt.show()
 
+
 def animate_cartpole(time, x_pos, theta, dt, cart_width=0.3, cart_height=0.15, pendulum_length=0.5):
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.set_xlim(-3, 3)
@@ -146,9 +148,31 @@ def animate_cartpole(time, x_pos, theta, dt, cart_width=0.3, cart_height=0.15, p
     ax.set_ylabel("Y Position (m)")
     ax.set_title("Cart-Pole Animation")
     
+    # Initialize cart and pendulum
     cart = plt.Rectangle((-cart_width/2, -cart_height/2), cart_width, cart_height, color='blue')
     ax.add_patch(cart)
     pendulum_line, = ax.plot([], [], 'ro-', lw=3)
+    
+    def init():
+        pendulum_line.set_data([], [])
+        cart.set_xy((-cart_width/2, -cart_height/2))
+        return cart, pendulum_line
+    
+    def update(frame):
+        # Update cart position
+        cart_x = x_pos[frame] - cart_width / 2
+        cart.set_xy((cart_x, -cart_height / 2))
+        # Update pendulum position
+        pendulum_x = [x_pos[frame], x_pos[frame] + pendulum_length * np.sin(theta[frame])]
+        pendulum_y = [0, -pendulum_length * np.cos(theta[frame])]
+        pendulum_line.set_data(pendulum_x, pendulum_y)
+        return cart, pendulum_line
+    
+    # Create animation
+    ani = animation.FuncAnimation(
+        fig, update, frames=range(len(time)), init_func=init, blit=True, interval=dt*1000
+    )
+    plt.show()
 
     def update(frame):
         x = x_pos[frame]

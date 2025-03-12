@@ -10,7 +10,7 @@ This project implements multiple **control strategies** (PID, pole placement, LQ
   3. Simulation in Python (`solve_ivp`), optional sensor noise, low-pass filtering
 
 ## Repository
-├── 2D_main.py    # Main script (select controller) 
+├── 2D_main_interface.py    # Main script (select controller) 
 ├── controller.py                   # Controller classes 
 ├── utils.py                        # Dynamics, discretization, plotting 
 └── README.md                       # This file
@@ -31,7 +31,7 @@ pip install numpy scipy matplotlib cvxpy
 
 ## Usage
 
-python 2D_main.py --controller {pid|dpole|dlqr} [--noise] [--animate]
+python 2D_main.py --controller {pid|dpole|dlqr|lqr} [--noise] [--animate]
 
 
 

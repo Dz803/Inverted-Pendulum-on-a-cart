@@ -9,7 +9,7 @@ import argparse
 # Import controllers from your 'controller.py'
 from controller import (
     PIDController, 
-    PolePlacementController,
+    ContinuousLQRController,
     DiscretePolePlacementController,
     DiscreteLQRController   # newly added discrete LQR
 )
@@ -33,7 +33,7 @@ def parse_args():
         "--controller", 
         type=str,
         choices=["pid", "cpole", "dpole", "lqr", "dlqr"],
-        default="pid",
+        default="dlqr",
         help="Controller type: 'pid', 'dpole' (discrete pole placement),  or 'dlqr' (discrete LQR)"
     )
     return parser.parse_args()
@@ -67,26 +67,55 @@ def main():
         Ad, Bd = discretize_system(A, B, dt)
         desired_zpoles = [ -0.5+0.1j, -0.5-0.1j, -3, -0.7 ]
         ctrl = DiscretePolePlacementController(Ad, Bd, desired_poles=desired_zpoles, dt=dt, max_force=10.0, target_state=[0, 0, 0, 0])
+
+        # 修改控制器选择逻辑
+    elif args.controller == "lqr":
+        print("[INFO] Using Continuous LQR Controller")
+        # 构建连续系统矩阵（已存在）
+        A, B = build_cartpole_linear_system(M, m, l, g, b, zeta, c)
+        # 设计权重矩阵
+        Q = np.diag([1.0, 0.5, 5.0, 0.8])  # [x, ẋ, θ, θ̇]
+        R = np.array([[0.5]])
+        ctrl = ContinuousLQRController(A, B, Q, R, max_force=8.0)
+
     
     elif args.controller == "dlqr":
         print("[INFO] Using DISCRETE LQR Controller")
         # Discretize the continuous system
         Ad, Bd = discretize_system(A, B, dt)
         # Define weighting matrices for discrete LQR
-        Q = np.diag([0,1.2,2,1.5])
-        R = np.array([[1e10]])
-        ctrl = DiscreteLQRController(Ad, Bd, Q, R, dt=dt, max_force=5.0, target_state=[0, 0, 0, 0])
+
+
+
+
+
+        x0[2] = np.deg2rad(1)  # Use a smaller initial angle for easier stabilization
+        Q = np.diag([1.0, 0.8, 0.7, 0.5])  # [x, ẋ, θ, θ̇]
+        R = np.array([[10]])
+        print("Q and R: \n")     
+        print(Q)
+        print(R)           
+        ctrl = DiscreteLQRController(Ad, Bd, Q, R, dt=dt, max_force=4, target_state=[0, 0, 0, 0])
+
+
+
+
+
+
+
+
+
     else:
         raise ValueError("Unknown controller type!")
 
-    # 3) Define a wrapper to pass control to the cartpole dynamics.
+    # 3) Define the dynamics function
+    # 修改dynamics函数处理
     def dynamics(t, state):
-        # For discrete controllers, pass time as well
-        if args.controller in ["dpole", "dlqr"]:
-            u = ctrl.compute_control(t, state)
-        else:
+        # 所有连续控制器统一调用方式
+        if args.controller in ["pid", "lqr"]:  # 添加lqr到该分支
             u = ctrl.compute_control(state)
-        # Use a dummy controller to meet the expected interface in cartpole_nonlinear_dynamics
+        elif args.controller in ["dpole", "dlqr"]:
+            u = ctrl.compute_control(t, state)
         return cartpole_nonlinear_dynamics(t, state, params, pid=DummyController(u))
 
     # 4) Solve the ODE
@@ -98,7 +127,7 @@ def main():
         print("[INFO] Applying sensor noise & low-pass filtering")
         noisy_states = apply_noise(states, noise_level=0.05)
         cutoff_freq = 1.0
-        fs = 1/dt
+        fs = 1/dt 
         filtered_x = low_pass_filter(noisy_states[0], cutoff_freq, fs)
         filtered_theta = low_pass_filter(noisy_states[2], cutoff_freq, fs)
 
