@@ -45,7 +45,9 @@
  
  - **2D_Main_GUI_Latest.py:**
  - This is the main script that provides an interactive graphical user interface (GUI). It enables users to select and tune different controllers, run simulations of the cart-pole system, and visualize the results in real time, including animations and dynamic plots of system variables and control forces.
- 
+
+ -**Cartpole.ino:**
+ - This is the Arduino file for the practical implementation. It uses a PID controller to stablize the pole.
  
  ---
  
@@ -63,6 +65,7 @@
  ## Installation
  
  -- Download file source_cartpole.py and file 2D_Main_GUI_Latest.py from Github
+ -- Download file Cartpole.ino 
  
  ## Usage
  
@@ -81,4 +84,6 @@
  
  -- 5. Switching Controllers/Settings:  To try a different controller or modify the settings (e.g., enable/disable disturbances or noise), click the "End" button to stop the current simulation.
  ----- Then, adjust your desired settings and press "Start" again to begin a new simulation.
+
+ --6. For the Arduino code, once the MCU and encoder are correctly connected to the motors, upload the code to the Arduino board. The cart should be expected to start stablizing the pole after receiving a small disturbance.
  
