@@ -1,5 +1,0 @@
-Add a user interface(best with buttons where the user can tune the system params and controller parameters)
-Add a nonlinear MPC controller
-Add a LQR controller
-Add a Kalman filter
-Implement the 12Hz Sampling Rate version* (MPC,LQR) 

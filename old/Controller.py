@@ -205,8 +205,8 @@ class ContinuousLQRController(CartpoleController):
         print("Q, R:", self.Q, self.R)
         eigenvalues = np.linalg.eigvals(closed_loop_A)
         print("Eigenvalues of (A - B*K):", eigenvalues)
-        if np.any(np.real(eigenvalues) >= 0):
-            warnings.warn("Unstable closed-loop system!", RuntimeWarning)
+        #if np.any(np.real(eigenvalues) >= 0):
+            #warnings.warn("Unstable closed-loop system!", RuntimeWarning)
 
     def compute_control(self, state: List[float]) -> float:
         """Continuous control law: u = -K(x - x_ref)"""
